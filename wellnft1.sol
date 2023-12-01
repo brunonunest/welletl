@@ -5,9 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
-// error nonExistentToken();
-
-contract WellNFT is ERC721Enumerable, Ownable(msg.sender) {
+contract WellNFT is ERC721Enumerable, Ownable {
     using Strings for uint256;
 
     string private prefixURI;
@@ -17,132 +15,75 @@ contract WellNFT is ERC721Enumerable, Ownable(msg.sender) {
         uint256 timestamp;
     }
 
-    struct userData {
-        address user;
+    struct UserData {
         Entry[] entries;
     }
 
-    mapping(address => userData) public userDataHistory;
+    mapping(address => UserData) private userDataHistory;
+    mapping(uint256 => string) private tokenType;
 
-    mapping(uint256 => string) public tokenType;
+    error NonExistentToken();
+    error NotFirstAccess();
+    error NoEntriesFound();
+    error GoalNotMet(uint256 requiredGoal);
 
-    Entry[] public entries;
-    
-    constructor(string memory _prefixURI) ERC721("WellNFT", "WNFT") {
-        prefixURI = _prefixURI;
+    event GoalUpdated(address indexed user, uint256 newGoal);
+    event TokenMinted(address indexed user, uint256 tokenId);
+
+    constructor(string memory _prefixURI) ERC721("WellNFT", "WNFT") Ownable(msg.sender) {
+    prefixURI = _prefixURI;
     }
 
-    function uintToString(uint256 value) public pure returns (string memory) {
-        return value.toString();
+    function firstMint(address userAddress) external {
+        UserData storage user = userDataHistory[userAddress];
+        if (user.entries.length > 0) revert NotFirstAccess();
+
+        uint256 tokenId = _mintToken(userAddress, "welcome", 5000);
+        emit TokenMinted(userAddress, tokenId);
     }
 
-    function getUserHistory(address userAddress) public view returns (Entry[] memory) {
-        return userDataHistory[userAddress].entries;
+    function mint(uint256 stepCount) external {
+    UserData storage user = userDataHistory[msg.sender];
+    uint256 lastGoalValue = getLastGoal(msg.sender);
+
+    if (stepCount < lastGoalValue) revert GoalNotMet(lastGoalValue);
+
+    uint256 tokenId = _mintToken(msg.sender, lastGoalValue.toString(), stepCount);
+    emit TokenMinted(msg.sender, tokenId);
+
+    // Update the user's entries with the new goal
+    user.entries.push(Entry({dailyGoal: stepCount, timestamp: block.timestamp}));
     }
 
-    function firstMint(address userAddress) public {
-    require(userDataHistory[userAddress].entries.length == 0, "Not the first access");
-    uint256 tokenId = totalSupply() + 1;
-    _safeMint(msg.sender, tokenId);
-    tokenType[tokenId] = "welcome";
-    Entry memory newEntry = Entry({
-        dailyGoal: 5000,  // or any other value you want to set
-        timestamp: block.timestamp
-    });
-    // userDataHistory[userAddress].user = userAddress;
-    userDataHistory[userAddress].entries.push(newEntry);
-    }
 
     function getLastGoal(address userAddress) public view returns (uint256) {
-        uint256 entriesCount = userDataHistory[userAddress].entries.length;
-        require(entriesCount > 0, "No entries found for this address");
-        Entry memory lastEntry = userDataHistory[userAddress].entries[entriesCount - 1];
-        return lastEntry.dailyGoal;
+        UserData storage user = userDataHistory[userAddress];
+        uint256 entriesCount = user.entries.length;
+        if (entriesCount == 0) revert NoEntriesFound();
+
+        return user.entries[entriesCount - 1].dailyGoal;
     }
 
-    function mint(uint256 stepCount) public {
-    address userAddress = msg.sender;
-    uint256 lastGoalValue = getLastGoal(userAddress);
-    require(stepCount >= lastGoalValue, "Value to compare is less than the goal");
-    uint256 tokenId = totalSupply() + 1;
-    _safeMint(msg.sender, tokenId);
-    tokenType[tokenId] = uintToString(lastGoalValue);
+    function tokenURI(uint256 _tokenId) public view override returns (string memory) {
+    if (bytes(tokenType[_tokenId]).length == 0) revert NonExistentToken();
 
-    // Update the last goal directly without calling another function
-    Entry memory newEntry = Entry({
-        dailyGoal: stepCount,  // New goal based on the stepCount
-        timestamp: block.timestamp
-    });
-    userDataHistory[userAddress].entries.push(newEntry);
+    return string(abi.encodePacked(prefixURI, _tokenId.toString(), "/metadata/", tokenType[_tokenId]));
     }
 
 
-    function tokenURI(
-        uint256 _tokenId
-    ) public view virtual override returns (string memory) {
-        return
-            string(
-                abi.encodePacked(
-                    prefixURI,
-                    Strings.toString(_tokenId),
-                    "/metadata", tokenType[_tokenId]  // Include the type in the URI
-                )
-            );
-    }
-
-    function setPrefixURI(string memory _prefixURI) public onlyOwner {
+    function setPrefixURI(string calldata _prefixURI) external onlyOwner {
         prefixURI = _prefixURI;
     }
 
-    function firstGoal(uint256 stepCount, address userAddress) public onlyOwner {
-        uint256 goal = 0;
-        uint256 lastGoalValue = getLastGoal(userAddress);
-        if (stepCount < 5000) {
-            goal = 5000;
-        } if (stepCount >= 5000 && lastGoalValue < 6000) {
-            goal = 6000;
-        }
-        if (stepCount >= lastGoalValue) {
-            Entry memory newEntry = Entry({
-            dailyGoal: goal,  // or any other value you want to set
-            timestamp: block.timestamp
-            });
-            mint(stepCount);
-            userDataHistory[userAddress].entries.push(newEntry);
-        }
-    }
+    function _mintToken(address to, string memory typeOfToken, uint256 newGoal) private returns (uint256) {
+        uint256 tokenId = totalSupply() + 1;
+        _safeMint(to, tokenId);
 
-    function lastGoal(uint256 stepCount, address userAddress) public onlyOwner {
-        uint256 goal = 0;
-        uint256 lastGoalValue = getLastGoal(userAddress);
-        if (stepCount < 5000) {
-            goal = 5000;
-        } if (stepCount >= 5000 && stepCount < 6000 && lastGoalValue == 5000) {
-            goal = 6000;
-        } if (stepCount >= 6000 && stepCount < 7000 && lastGoalValue == 6000) {
-            goal = 7000;
-        } if (stepCount >= 7000 && stepCount < 8000 && lastGoalValue == 7000) {
-            goal = 8000;
-        } if (stepCount >= 8000 && lastGoalValue == 8000) {
-            goal = lastGoalValue + 1000;
-        }
-        if (stepCount >= lastGoalValue) {
-            Entry memory newEntry = Entry({
-            dailyGoal: goal,  // or any other value you want to set
-            timestamp: block.timestamp
-            });
-            userDataHistory[userAddress].entries.push(newEntry);
-        } 
-    }
+        tokenType[tokenId] = typeOfToken;
 
-    //maybe not needed
-    function updateGoal(uint256 _newGoal, address userAddress) public onlyOwner {
-        if (_newGoal > getLastGoal(userAddress)) {
-            Entry memory newEntry = Entry({
-            dailyGoal: _newGoal,  // or any other value you want to set
-            timestamp: block.timestamp
-            });
-            userDataHistory[userAddress].entries.push(newEntry);
-        } 
+        userDataHistory[to].entries.push(Entry({dailyGoal: newGoal, timestamp: block.timestamp}));
+        emit GoalUpdated(to, newGoal);
+
+        return tokenId;
     }
 }
