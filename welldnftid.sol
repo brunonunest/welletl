@@ -11,11 +11,12 @@ contract IdentityNFT is ERC721, Ownable {
     string private baseURI;
     mapping(address => uint256) public userToIdentityToken;
     uint256 private _tokenIdCounter = 0;
+    mapping(uint256 => string) private _tokenURIs; // Mapping for individual token URIs
 
     event IdentityNFTMinted(address indexed user, uint256 tokenId);
 
     constructor(string memory _baseURI) ERC721("WIdentityNFT", "WIDNFT") Ownable(msg.sender) {
-    baseURI = _baseURI;
+        baseURI = _baseURI;
     }
 
     function mintIdentityToken(address user) external onlyOwner {
@@ -29,12 +30,19 @@ contract IdentityNFT is ERC721, Ownable {
         emit IdentityNFTMinted(user, newTokenId);
     }
 
+    // Function to update the URI of a specific token
+    function setTokenURI(uint256 tokenId, string calldata newTokenURI) external onlyOwner {
+        require(tokenId > 0 && tokenId <= _tokenIdCounter, "ERC721Metadata: URI set of nonexistent token");
+        _tokenURIs[tokenId] = newTokenURI;
+    }
+
     // Updated tokenURI function
     function tokenURI(uint256 tokenId) public view override returns (string memory) {
         require(tokenId > 0 && tokenId <= _tokenIdCounter, "ERC721Metadata: URI query for nonexistent token");
 
-        // Construct the token URI on the fly
-        return string(abi.encodePacked(baseURI, tokenId.toString()));
+        // Use specific URI if set, otherwise default to baseURI
+        string memory _uri = _tokenURIs[tokenId];
+        return bytes(_uri).length > 0 ? _uri : string(abi.encodePacked(baseURI, tokenId.toString()));
     }
 
     function setBaseURI(string calldata _baseURI) external onlyOwner {
